@@ -14,6 +14,10 @@ This repository packages Google's [reference CI/CD workflow](https://docs.cloud.
 
 ## Setup
 
+### 0. Preview access
+
+CodeMender is available to a limited set of customers. Your Google Cloud project must be onboarded to the preview by your Google account team before any scan works. `cm health` does not test this: it passes on a project with the right IAM roles and no preview access. The only proof is a scan. After onboarding, run the **Preflight** workflow in this repository (Actions > Preflight > Run workflow); it scans a one-file project and fails with a clear message if the project isn't onboarded.
+
 ### 1. Google Cloud, once per project
 
 Needs a project with CodeMender access and the `aiplatform.googleapis.com` API. Creates a service account with `roles/aiplatform.user`, a Workload Identity pool with a GitHub OIDC provider limited to your GitHub owner, and a binding for each repository. No keys are created.
@@ -109,6 +113,19 @@ Outputs: `status` (cm find exit code), `findings` (count of blocking findings), 
 - Every third-party action is pinned to a commit SHA with the version in a comment.
 - To move to a new CLI release: `./scripts/pin-version.sh <version>`, review the checksums file, bump the `cm-version` default, open a pull request. The CI smoke test runs the new binary through `cm health` and a scan.
 - `cm` runs with `--sandbox=false` in CI, as in Google's sample, because the Linux sandbox needs user namespaces that GitHub's runners don't provide. Whatever the agent executes has the job's credentials, which is why the service account holds `roles/aiplatform.user` and nothing else, and why you should not use self-hosted runners that are reused between jobs.
+
+## Troubleshooting
+
+The scan step prints a `CodeMender error details` group whenever `cm find` exits with anything other than 0 (clean) or 1 (findings). Read that group first.
+
+| Log says | Meaning | Fix |
+|---|---|---|
+| `Unsupported agent interaction: codemender-preview` / "Access to the CodeMender preview release must be coordinated" | The project is not onboarded to the CodeMender preview. IAM is fine; `cm health` still passes | Ask your Google account team to onboard the project, then run the Preflight workflow |
+| `cm health` exit 10 | No usable Google Cloud credential | Check the three secrets and that the job has `id-token: write` |
+| `cm health` exit 40 | Service account lacks `roles/aiplatform.user`, or the API is disabled | Re-run `scripts/setup-gcp.sh` |
+| `origin/<branch> is not in the checkout` | Shallow checkout | `actions/checkout` with `fetch-depth: 0` (the reusable workflow does this) |
+| `Checksum mismatch` | Artifact Registry served a different binary than `checksums/<version>.sha256` records | Re-run `scripts/pin-version.sh <version>` and compare; treat an unexplained change as a supply-chain signal |
+| Autofix job ran but no fix pull request | CodeMender fixed nothing, or Actions may not create pull requests | Check the job warnings; enable *Allow GitHub Actions to create and approve pull requests* |
 
 ## Cost
 

@@ -1,0 +1,80 @@
+name: Preflight
+
+# Proves CodeMender access end to end with a real scan, not just cm health. Run it after the
+# Google Cloud project is onboarded to the CodeMender preview, after rotating the WIF setup, or
+# after bumping the CLI pin. Also runs weekly as a canary for the pinned CLI version.
+
+on:
+  workflow_dispatch:
+    inputs:
+      cm-version:
+        description: CodeMender CLI version to test
+        type: string
+        default: "0.20.0"
+  schedule:
+    - cron: "17 2 * * 1" # Mondays 02:17 UTC
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CM_PLAIN: "true"
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+
+      - uses: ./setup
+        with:
+          version: ${{ inputs.cm-version || '0.20.0' }}
+
+      - name: cm health (IAM, config, reachability)
+        run: cm health --strict
+
+      - name: Real scan of a one-file project
+        run: |
+          # cm health passes on projects that aren't onboarded to the preview. Only a scan proves access.
+          work="$RUNNER_TEMP/preflight"
+          mkdir -p "$work" && cd "$work"
+          git init -q -b main
+          cat > app.py <<'EOF'
+          import sqlite3
+
+
+          def find_user(conn: sqlite3.Connection, name: str):
+              return conn.execute("SELECT id FROM users WHERE name = '" + name + "'").fetchone()
+          EOF
+          git -c user.name=preflight -c user.email=preflight@example.invalid add app.py
+          git -c user.name=preflight -c user.email=preflight@example.invalid commit -q -m "seed"
+          cm init
+          status=0
+          cm find app.py --quick --fail-on="" --format=json --output=findings.json \
+            --sandbox=false --yes --bypass-warning || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::cm find exited with ${status}. If the log says 'Unsupported agent interaction: codemender-preview', the project is not onboarded to the CodeMender preview."
+            exit "$status"
+          fi
+          echo "CodeMender scan succeeded; $(jq length findings.json) finding(s) in the seeded file."
+          {
+            echo "## Preflight"
+            echo
+            echo "CodeMender access confirmed with a real scan. Findings in the seeded file: $(jq length findings.json)."
+          } >> "$GITHUB_STEP_SUMMARY"
