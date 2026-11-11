@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+      - name: actionlint
+        run: pipx run actionlint-py==1.7.12.25 -color
+      - name: zizmor
+        run: pipx run zizmor==1.32.0 --persona=regular .github/workflows action.yml setup/action.yml
+
+  # Smoke test: run the reusable workflow against this repository's own pull requests.
+  # Nothing here is in CodeMender's default language set, so the scan completes quickly and
+  # proves installation, Workload Identity Federation and cm health end to end.
+  smoke:
+    name: Smoke test
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/codemender.yml
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+      actions: read
+    with:
+      autofix: false
+      upload-sarif: false
+    secrets:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+      GCP_WIF_SERVICE_ACCOUNT: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}

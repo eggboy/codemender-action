@@ -1,0 +1,218 @@
+name: CodeMender
+
+# Reusable workflow: scan a pull request with CodeMender, upload findings to code scanning,
+# and open a fix pull request when the scan fails. Call it from a repository workflow:
+#
+#   jobs:
+#     codemender:
+#       uses: eggboy/codemender-action/.github/workflows/codemender.yml@<commit-sha>
+#       permissions:
+#         contents: write        # autofix pushes the fix branch
+#         pull-requests: write   # autofix opens the fix pull request
+#         id-token: write        # Workload Identity Federation
+#         security-events: write # SARIF upload to code scanning
+#         actions: read          # SARIF upload from a private repository
+#       secrets:
+#         GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+#         GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+#         GCP_WIF_SERVICE_ACCOUNT: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+
+on:
+  workflow_call:
+    inputs:
+      fail-on:
+        description: Severities that fail the scan (comma-separated, no spaces). Empty string reports only.
+        type: string
+        default: CRITICAL,HIGH
+      cm-version:
+        description: CodeMender CLI version to install.
+        type: string
+        default: "0.20.0"
+      upload-sarif:
+        description: Upload the SARIF report to GitHub code scanning. Private repositories need GitHub Code Security.
+        type: boolean
+        default: true
+      autofix:
+        description: Open a pull request with CodeMender fixes when the scan fails.
+        type: boolean
+        default: true
+      runs-on:
+        description: Runner label. Use GitHub-hosted runners; the agent runs without its sandbox.
+        type: string
+        default: ubuntu-24.04
+    secrets:
+      GCP_PROJECT_ID:
+        required: true
+      GCP_WIF_PROVIDER:
+        required: true
+      GCP_WIF_SERVICE_ACCOUNT:
+        required: true
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CM_PLAIN: "true"
+
+jobs:
+  scan:
+    name: CodeMender scan
+    # Workflows for fork and Dependabot pull requests can't read secrets, so they can't
+    # authenticate to Google Cloud. GitHub counts a skipped job as passing; review those by hand.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+      actions: read
+    outputs:
+      findings: ${{ steps.scan.outputs.findings }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # cm needs the base branch history
+          persist-credentials: false
+
+      - name: Find the commit of this reusable workflow
+        id: self
+        env:
+          AUDIENCE: eggboy/codemender-action
+        run: |
+          # The github context belongs to the caller. The commit of this reusable workflow is only
+          # recorded in the OIDC token's job_workflow_sha claim, so read it from there.
+          token=$(curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" | jq -r .value)
+          payload=$(printf '%s' "$token" | cut -d. -f2 | tr '_-' '/+')
+          case $(( ${#payload} % 4 )) in 2) payload="${payload}==" ;; 3) payload="${payload}=" ;; esac
+          sha=$(printf '%s' "$payload" | base64 -d | jq -r '.job_workflow_sha // empty')
+          if [ -z "$sha" ]; then
+            echo "::error::Could not read job_workflow_sha from the OIDC token."
+            exit 1
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out codemender-action at that commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: eggboy/codemender-action
+          ref: ${{ steps.self.outputs.sha }}
+          path: .codemender-action
+          persist-credentials: false
+
+      - name: Keep action files out of the scan
+        run: echo .codemender-action >> .git/info/exclude
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+
+      - name: Scan the pull request
+        id: scan
+        uses: ./.codemender-action
+        with:
+          version: ${{ inputs.cm-version }}
+          fail-on: ${{ inputs.fail-on }}
+          findings-file: ${{ runner.temp }}/codemender-findings.json
+
+      - name: Upload results to code scanning
+        if: ${{ !cancelled() && inputs.upload-sarif && hashFiles('codemender.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: codemender.sarif
+          category: codemender
+
+      - name: Save findings for autofix
+        if: ${{ !cancelled() && inputs.autofix && steps.scan.outputs.findings > 0 }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: codemender-findings
+          path: ${{ runner.temp }}/codemender-findings.json
+          retention-days: 1
+
+  autofix:
+    name: CodeMender autofix
+    needs: scan
+    if: ${{ !cancelled() && inputs.autofix && needs.scan.outputs.findings > 0 }}
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
+
+      - name: Find the commit of this reusable workflow
+        id: self
+        env:
+          AUDIENCE: eggboy/codemender-action
+        run: |
+          token=$(curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" | jq -r .value)
+          payload=$(printf '%s' "$token" | cut -d. -f2 | tr '_-' '/+')
+          case $(( ${#payload} % 4 )) in 2) payload="${payload}==" ;; 3) payload="${payload}=" ;; esac
+          sha=$(printf '%s' "$payload" | base64 -d | jq -r '.job_workflow_sha // empty')
+          if [ -z "$sha" ]; then
+            echo "::error::Could not read job_workflow_sha from the OIDC token."
+            exit 1
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out codemender-action at that commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: eggboy/codemender-action
+          ref: ${{ steps.self.outputs.sha }}
+          path: .codemender-action
+          persist-credentials: false
+
+      - name: Keep action files, CodeMender state and credentials out of the commits
+        run: printf '%s\n' .codemender-action .cm_project 'gha-creds-*.json' >> .git/info/exclude
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+
+      - uses: ./.codemender-action/setup
+        with:
+          version: ${{ inputs.cm-version }}
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: codemender-findings
+          path: ${{ runner.temp }}/codemender
+
+      - name: Fix findings
+        id: fix
+        env:
+          FINDINGS_FILE: ${{ runner.temp }}/codemender/codemender-findings.json
+        run: bash .codemender-action/scripts/autofix.sh
+
+      - name: Open the fix pull request
+        if: ${{ steps.fix.outputs.fixed > 0 }}
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
+        with:
+          branch: codemender/fix-pr-${{ github.event.pull_request.number }}
+          base: ${{ github.head_ref }}
+          title: "CodeMender fixes for #${{ github.event.pull_request.number }}"
+          body: |
+            CodeMender generated these fixes for findings in #${{ github.event.pull_request.number }}.
+
+            The fixes are AI-generated. Review each commit and run the tests before you merge this
+            pull request into `${{ github.head_ref }}`. Merging it updates the original pull request,
+            which is then scanned again.

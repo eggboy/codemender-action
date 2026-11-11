@@ -1,0 +1,27 @@
+name: Set up CodeMender CLI
+description: Install a pinned, checksum-verified release of the CodeMender CLI (cm) and add it to PATH.
+author: eggboy
+branding:
+  icon: download
+  color: blue
+
+inputs:
+  version:
+    description: CodeMender CLI version to install. Must have a file in checksums/ or a sha256 input.
+    required: false
+    default: "0.20.0"
+  sha256:
+    description: Expected SHA-256 of the CLI zip for this runner's OS and architecture. Overrides checksums/.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install the CodeMender CLI
+      shell: bash
+      env:
+        CM_VERSION: ${{ inputs.version }}
+        CM_SHA256: ${{ inputs.sha256 }}
+        ACTION_PATH: ${{ github.action_path }}/..
+      run: bash "${ACTION_PATH}/scripts/install.sh"

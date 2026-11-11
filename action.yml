@@ -1,0 +1,104 @@
+name: CodeMender scan
+description: >-
+  Scan a pull request's changes with Google CodeMender (cm find --diff). Installs a pinned,
+  checksum-verified CLI, fails on CRITICAL/HIGH findings introduced by the pull request, writes a
+  SARIF report, and saves the blocking findings for an autofix job.
+author: eggboy
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  version:
+    description: CodeMender CLI version to install. Must have a file in checksums/ or a sha256 input.
+    required: false
+    default: "0.20.0"
+  sha256:
+    description: Expected SHA-256 of the CLI zip for this runner's OS and architecture. Overrides checksums/.
+    required: false
+    default: ""
+  base-ref:
+    description: Git ref to diff against. Defaults to the pull request's base branch.
+    required: false
+    default: origin/${{ github.base_ref }}
+  fail-on:
+    description: Comma-separated severities that fail the scan (CRITICAL, HIGH, MEDIUM, LOW). Empty string reports only.
+    required: false
+    default: CRITICAL,HIGH
+  diff-workers:
+    description: Number of files scanned concurrently (1-16).
+    required: false
+    default: "16"
+  sarif-file:
+    description: Path of the SARIF report to write.
+    required: false
+    default: codemender.sarif
+  findings-file:
+    description: Path of the JSON file that receives the blocking findings (input for autofix).
+    required: false
+    default: ${{ runner.temp }}/codemender-findings.json
+  summary:
+    description: Write the findings report to the job summary.
+    required: false
+    default: "true"
+  fail:
+    description: Fail the step when cm find reports blocking findings. Set to "false" to only expose outputs.
+    required: false
+    default: "true"
+
+outputs:
+  status:
+    description: Exit status of cm find (0 clean, 1 blocking findings).
+    value: ${{ steps.scan.outputs.status }}
+  findings:
+    description: Number of findings that matched fail-on in code the pull request changed.
+    value: ${{ steps.scan.outputs.findings }}
+  sarif-file:
+    description: Path of the SARIF report.
+    value: ${{ steps.scan.outputs.sarif-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install the CodeMender CLI
+      shell: bash
+      env:
+        CM_VERSION: ${{ inputs.version }}
+        CM_SHA256: ${{ inputs.sha256 }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "${ACTION_PATH}/scripts/install.sh"
+
+    - name: Scan the pull request
+      id: scan
+      shell: bash
+      env:
+        CM_PLAIN: "true"
+        BASE_REF: ${{ inputs.base-ref }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        DIFF_WORKERS: ${{ inputs.diff-workers }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+        FINDINGS_FILE: ${{ inputs.findings-file }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "${ACTION_PATH}/scripts/scan.sh"
+
+    - name: Write the job summary
+      if: ${{ !cancelled() && inputs.summary == 'true' }}
+      shell: bash
+      env:
+        CM_PLAIN: "true"
+        BASE_REF: ${{ inputs.base-ref }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        STATUS: ${{ steps.scan.outputs.status }}
+        FINDINGS: ${{ steps.scan.outputs.findings }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "${ACTION_PATH}/scripts/summary.sh"
+
+    - name: Fail on blocking findings
+      if: ${{ inputs.fail == 'true' && steps.scan.outputs.status != '0' }}
+      shell: bash
+      env:
+        STATUS: ${{ steps.scan.outputs.status }}
+        FINDINGS: ${{ steps.scan.outputs.findings }}
+      run: |
+        echo "::error::CodeMender reported ${FINDINGS} blocking finding(s); cm find exited with ${STATUS}."
+        exit 1
