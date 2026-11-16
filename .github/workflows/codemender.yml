@@ -25,9 +25,9 @@ on:
         type: string
         default: CRITICAL,HIGH
       cm-version:
-        description: CodeMender CLI version to install.
+        description: CodeMender CLI version to install. Empty uses the pinned version in CM_VERSION.
         type: string
-        default: "0.20.0"
+        default: ""
       upload-sarif:
         description: Upload the SARIF report to GitHub code scanning. Private repositories need GitHub Code Security.
         type: boolean
@@ -118,7 +118,7 @@ jobs:
 
       - name: Scan the pull request
         id: scan
-        uses: ./.codemender-action
+        uses: ./.codemender-action # zizmor: ignore[self-repository] -- checked out inside caller workspace
         with:
           version: ${{ inputs.cm-version }}
           fail-on: ${{ inputs.fail-on }}
@@ -188,7 +188,7 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
 
-      - uses: ./.codemender-action/setup
+      - uses: ./.codemender-action/setup # zizmor: ignore[self-repository] -- checked out inside caller workspace
         with:
           version: ${{ inputs.cm-version }}
 

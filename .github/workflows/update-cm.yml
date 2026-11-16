@@ -69,7 +69,7 @@ jobs:
 
       - name: Install bumped CodeMender CLI
         if: steps.check.outputs.update_needed == 'true'
-        uses: ./setup
+        uses: ./setup # zizmor: ignore[self-repository] -- verifies uncommitted checksums in working tree
         with:
           version: ${{ steps.check.outputs.latest }}
 

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Bumps the pinned CodeMender CLI version across checksums, CM_VERSION, actions, workflows, and docs.
+# Bumps the pinned CodeMender CLI version across checksums, CM_VERSION, and README.md.
+#
+# Action and workflow YAML files read CM_VERSION at runtime when their version input is empty,
+# so automated version-bump pull requests do not require the GitHub App workflows permission.
 #
 # Usage: ./scripts/bump-version.sh 0.21.0
 set -euo pipefail
@@ -29,40 +32,27 @@ printf '%s\n' "$new_version" > "$version_file"
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 
-update_file() {
-  local file="$1"
-  awk -v old="$current" -v new="$new_version" '
-    function replace_all(str, needle, repl,    out, pos, nlen) {
-      if (needle == "" || needle == repl) {
-        return str
-      }
-      out = ""
-      nlen = length(needle)
-      while ((pos = index(str, needle)) > 0) {
-        out = out substr(str, 1, pos - 1) repl
-        str = substr(str, pos + nlen)
-      }
-      return out str
+readme="${repo_root}/README.md"
+awk -v old="$current" -v new="$new_version" '
+  function replace_all(str, needle, repl,    out, pos, nlen) {
+    if (needle == "" || needle == repl) {
+      return str
     }
-    {
-      line = $0
-      line = replace_all(line, "default: \"" old "\"", "default: \"" new "\"")
-      line = replace_all(line, "\047" old "\047", "\047" new "\047")
-      line = replace_all(line, "\140" old "\140", "\140" new "\140")
-      line = replace_all(line, "checksums/" old ".sha256", "checksums/" new ".sha256")
-      print line
+    out = ""
+    nlen = length(needle)
+    while ((pos = index(str, needle)) > 0) {
+      out = out substr(str, 1, pos - 1) repl
+      str = substr(str, pos + nlen)
     }
-  ' "$file" > "$tmp"
-  cat "$tmp" > "$file"
-}
-
-for rel in \
-  action.yml \
-  setup/action.yml \
-  .github/workflows/codemender.yml \
-  .github/workflows/preflight.yml \
-  README.md; do
-  update_file "${repo_root}/${rel}"
-done
+    return out str
+  }
+  {
+    line = $0
+    line = replace_all(line, "\140" old "\140", "\140" new "\140")
+    line = replace_all(line, "checksums/" old ".sha256", "checksums/" new ".sha256")
+    print line
+  }
+' "$readme" > "$tmp"
+cat "$tmp" > "$readme"
 
 echo "Bumped CodeMender CLI default from ${current} to ${new_version}."

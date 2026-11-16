@@ -7,9 +7,9 @@ branding:
 
 inputs:
   version:
-    description: CodeMender CLI version to install. Must have a file in checksums/ or a sha256 input.
+    description: CodeMender CLI version to install. Empty uses the pinned version in CM_VERSION.
     required: false
-    default: "0.20.0"
+    default: ""
   sha256:
     description: Expected SHA-256 of the CLI zip for this runner's OS and architecture. Overrides checksums/.
     required: false

@@ -2,15 +2,18 @@
 # Installs a pinned CodeMender CLI (cm) release from Artifact Registry and verifies its SHA-256.
 #
 # Environment:
-#   CM_VERSION   required  package version, for example 0.20.0 (not "stable")
+#   CM_VERSION   optional  package version, for example 0.20.0; defaults to ACTION_PATH/CM_VERSION
 #   CM_SHA256    optional  expected SHA-256 of the zip; overrides checksums/<version>.sha256
 #   ACTION_PATH  optional  directory that contains checksums/ (defaults to this repository)
 #   RUNNER_TEMP  optional  where to unpack (GitHub Actions sets it)
 #   GITHUB_PATH  optional  if set, the install directory is appended so later steps find cm
 set -euo pipefail
 
-: "${CM_VERSION:?CM_VERSION is required}"
 ACTION_PATH="${ACTION_PATH:-$(cd "$(dirname "$0")/.." && pwd)}"
+if [ -z "${CM_VERSION:-}" ] && [ -f "${ACTION_PATH}/CM_VERSION" ]; then
+  CM_VERSION=$(tr -d '[:space:]' < "${ACTION_PATH}/CM_VERSION")
+fi
+: "${CM_VERSION:?CM_VERSION is required}"
 RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
 
 case "$(uname -s)" in

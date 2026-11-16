@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       cm-version:
-        description: CodeMender CLI version to test
+        description: CodeMender CLI version to test (empty uses CM_VERSION)
         type: string
-        default: "0.20.0"
+        default: ""
   schedule:
     - cron: "17 2 * * 1" # Mondays 02:17 UTC
 
@@ -42,9 +42,9 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
 
-      - uses: ./setup
+      - uses: ./setup # zizmor: ignore[self-repository] -- tests working-tree setup action
         with:
-          version: ${{ inputs.cm-version || '0.20.0' }}
+          version: ${{ inputs.cm-version }}
 
       - name: cm health (IAM, config, reachability)
         run: cm health --strict

@@ -51,7 +51,7 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
 
-      - uses: ./setup
+      - uses: ./setup # zizmor: ignore[self-repository] -- tests working-tree setup action
 
       - name: cm health
         run: cm health --strict
