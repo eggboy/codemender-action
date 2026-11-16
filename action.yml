@@ -1,8 +1,5 @@
 name: CodeMender scan
-description: >-
-  Scan a pull request's changes with Google CodeMender (cm find --diff). Installs a pinned,
-  checksum-verified CLI, fails on CRITICAL/HIGH findings introduced by the pull request, writes a
-  SARIF report, and saves the blocking findings for an autofix job.
+description: Scan pull request diffs with Google CodeMender, verify CLI checksums, and export SARIF and fix findings.
 author: eggboy
 branding:
   icon: shield
