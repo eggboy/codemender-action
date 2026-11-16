@@ -63,7 +63,7 @@ jobs:
       GCP_WIF_SERVICE_ACCOUNT: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
 ```
 
-Pin `@<commit-sha>` to a release of this repository. The reusable workflow reads its own commit from the OIDC token (`job_workflow_sha`) and checks out the action scripts at that commit, so the workflow and the scripts always move together.
+Pin `@<commit-sha> # vX.Y.Z` to a release commit of this repository (each GitHub release includes the exact snippet). The reusable workflow reads its own commit from the OIDC token (`job_workflow_sha`) and checks out the action scripts at that commit, so the workflow and the scripts always move together. Configure Dependabot with `package-ecosystem: "github-actions"` in `.github/dependabot.yml` to receive automatic hash-pinned update pull requests when new `v<version>` releases are published.
 
 ## What happens on a pull request
 
@@ -111,7 +111,8 @@ Outputs: `status` (cm find exit code), `findings` (count of blocking findings), 
 
 - The CLI is downloaded by exact version from Artifact Registry and verified against `checksums/<version>.sha256`. Google's sample fetches `stable`, which moves about weekly.
 - Every third-party action is pinned to a commit SHA with the version in a comment.
-- To move to a new CLI release: `./scripts/pin-version.sh <version>`, review the checksums file, bump the `cm-version` default, open a pull request. The CI smoke test runs the new binary through `cm health` and a scan.
+- `.github/workflows/update-cm.yml` checks Artifact Registry daily for new `X.Y.Z` CLI versions, runs `./scripts/bump-version.sh <version>` to write `checksums/<version>.sha256` and update defaults (`CM_VERSION`, actions, workflows, and this README), verifies the binary with `cm health --strict` and a live `cm find` scan, and opens a pull request.
+- Merging a `CM_VERSION` change to `main` triggers `.github/workflows/release.yml`, which cuts release `v<version>` at that commit with `checksums/<version>.sha256` attached. Enable immutable releases and tag protection rulesets on `v*` so published releases cannot move. Consumer repositories that pin `@<commit-sha> # v<version>` with Dependabot (`package-ecosystem: "github-actions"`) receive automatic hash-pinned update pull requests.
 - `cm` runs with `--sandbox=false` in CI, as in Google's sample, because the Linux sandbox needs user namespaces that GitHub's runners don't provide. Whatever the agent executes has the job's credentials, which is why the service account holds `roles/aiplatform.user` and nothing else, and why you should not use self-hosted runners that are reused between jobs.
 
 ## Troubleshooting

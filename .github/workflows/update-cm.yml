@@ -1,0 +1,116 @@
+name: Update CodeMender CLI
+
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch: {}
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CM_PLAIN: "true"
+
+jobs:
+  update:
+    name: Update CodeMender CLI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check latest CodeMender CLI version
+        id: check
+        run: |
+          current=$(tr -d '[:space:]' < CM_VERSION)
+          latest=$(./scripts/latest-cm-version.sh)
+          highest=$(
+            printf '%s\n%s\n' "$current" "$latest" \
+              | awk -F. '/^[0-9]+\.[0-9]+\.[0-9]+$/ { print $1 + 0, $2 + 0, $3 + 0, $0 }' \
+              | LC_ALL=C sort -k1,1n -k2,2n -k3,3n \
+              | tail -n 1 \
+              | awk '{ print $4 }'
+          )
+          update_needed="false"
+          if [ "$latest" != "$current" ] && [ "$highest" = "$latest" ]; then
+            update_needed="true"
+          fi
+          {
+            echo "current=${current}"
+            echo "latest=${latest}"
+            echo "update_needed=${update_needed}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Current: ${current}, latest: ${latest}, update_needed: ${update_needed}"
+
+      - name: Bump version and pin checksums
+        if: steps.check.outputs.update_needed == 'true'
+        env:
+          LATEST: ${{ steps.check.outputs.latest }}
+        run: |
+          ./scripts/bump-version.sh "$LATEST"
+          printf '%s\n' .cm_project 'gha-creds-*.json' >> .git/info/exclude
+
+      - name: Authenticate to Google Cloud
+        if: steps.check.outputs.update_needed == 'true'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+
+      - name: Install bumped CodeMender CLI
+        if: steps.check.outputs.update_needed == 'true'
+        uses: ./setup
+        with:
+          version: ${{ steps.check.outputs.latest }}
+
+      - name: Verify CLI with health check and live scan
+        if: steps.check.outputs.update_needed == 'true'
+        run: |
+          cm health --strict
+          work="$RUNNER_TEMP/preflight"
+          rm -rf "$work"
+          mkdir -p "$work" && cd "$work"
+          git init -q -b main
+          cat > app.py <<'EOF'
+          import sqlite3
+
+
+          def find_user(conn: sqlite3.Connection, name: str):
+              return conn.execute("SELECT id FROM users WHERE name = '" + name + "'").fetchone()
+          EOF
+          git -c user.name=preflight -c user.email=preflight@example.invalid add app.py
+          git -c user.name=preflight -c user.email=preflight@example.invalid commit -q -m "seed"
+          cm init
+          status=0
+          cm find app.py --quick --fail-on="" --format=json --output=findings.json \
+            --sandbox=false --yes --bypass-warning || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::cm find exited with ${status}."
+            exit "$status"
+          fi
+          echo "CodeMender smoke scan succeeded; $(jq length findings.json) finding(s) in seeded file."
+
+      - name: Open version bump pull request
+        if: steps.check.outputs.update_needed == 'true'
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
+        with:
+          branch: chore/cm-${{ steps.check.outputs.latest }}
+          delete-branch: true
+          commit-message: "Bump CodeMender CLI to ${{ steps.check.outputs.latest }}"
+          title: "Bump CodeMender CLI to ${{ steps.check.outputs.latest }}"
+          body: |
+            Updates the default CodeMender CLI version from `${{ steps.check.outputs.current }}` to `${{ steps.check.outputs.latest }}`.
+
+            - Generated SHA-256 checksums in `checksums/${{ steps.check.outputs.latest }}.sha256` from Google Artifact Registry.
+            - Verified archive checksums, `cm health --strict`, and a live `cm find` scan.
+            - Merging this pull request cuts release `v${{ steps.check.outputs.latest }}`.

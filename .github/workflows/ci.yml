@@ -28,22 +28,30 @@ jobs:
       - name: zizmor
         run: pipx run zizmor==1.32.0 --persona=regular .github/workflows action.yml setup/action.yml
 
-  # Smoke test: run the reusable workflow against this repository's own pull requests.
-  # Nothing here is in CodeMender's default language set, so the scan completes quickly and
-  # proves installation, Workload Identity Federation and cm health end to end.
+  # Smoke test: verify CLI checksum installation, Workload Identity Federation, and cm health
+  # on internal pull requests without requiring write permissions from the reusable workflow.
   smoke:
     name: Smoke test
-    if: github.event_name == 'pull_request'
-    uses: ./.github/workflows/codemender.yml
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     permissions:
       contents: read
       id-token: write
-      security-events: write
-      actions: read
-    with:
-      autofix: false
-      upload-sarif: false
-    secrets:
-      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
-      GCP_WIF_SERVICE_ACCOUNT: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+    env:
+      CM_PLAIN: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+
+      - uses: ./setup
+
+      - name: cm health
+        run: cm health --strict

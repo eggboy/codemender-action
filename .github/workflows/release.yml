@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: ['CM_VERSION']
+  workflow_dispatch: {}
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          version=$(tr -d '[:space:]' < CM_VERSION)
+          tag="v${version}"
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists."
+            exit 0
+          fi
+          if [ ! -f "checksums/${version}.sha256" ]; then
+            echo "::error::Missing checksums/${version}.sha256."
+            exit 1
+          fi
+          notes="$RUNNER_TEMP/release-notes.md"
+          {
+            echo "Pins CodeMender CLI \`${version}\`."
+            echo
+            echo "### Reusable workflow"
+            echo
+            echo '```yaml'
+            echo "jobs:"
+            echo "  codemender:"
+            echo "    uses: ${REPO}/.github/workflows/codemender.yml@${COMMIT_SHA} # ${tag}"
+            echo '```'
+            echo
+            echo "### Composite action"
+            echo
+            echo '```yaml'
+            echo "- uses: ${REPO}@${COMMIT_SHA} # ${tag}"
+            echo '```'
+            echo
+            echo "### CLI SHA-256 checksums (\`checksums/${version}.sha256\`)"
+            echo
+            echo '```text'
+            cat "checksums/${version}.sha256"
+            echo '```'
+          } > "$notes"
+          gh release create "$tag" "checksums/${version}.sha256" \
+            --repo "$REPO" \
+            --target "$COMMIT_SHA" \
+            --title "${tag} (cm ${version})" \
+            --notes-file "$notes"
