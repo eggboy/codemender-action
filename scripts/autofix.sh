@@ -25,8 +25,8 @@ cm report --format=json --status=OPEN | jq -r '.[] | [.finding_id, .title] | @ts
 
 fixed=0
 while IFS=$'\t' read -r id title; do
-  # cm fix exits 0 when it makes no edits, so also check for changes.
-  if cm fix "$id" --sandbox=false --yes --bypass-warning < /dev/null && ! git diff --quiet; then
+  # cm fix may stage edits with git add; unstage first so git diff sees tracked changes.
+  if cm fix "$id" --sandbox=false --yes --bypass-warning < /dev/null && git reset -q && ! git diff --quiet; then
     git commit -q -a -m "Fix ${title}" -m "CodeMender finding ${id}"
     fixed=$((fixed + 1))
     echo "Fixed \"${title}\" (${id})."
