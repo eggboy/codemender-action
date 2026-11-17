@@ -39,6 +39,7 @@ The script prints three values. Add them as Actions secrets on each repository (
 - **Settings > Actions > General > Workflow permissions**: tick *Allow GitHub Actions to create and approve pull requests* (needed for autofix; skip if you set `autofix: false`).
 - On private repositories, SARIF upload needs GitHub Code Security. Without it set `upload-sarif: false`; findings still appear in the job summary.
 - Optional: a ruleset on `main` that requires the `CodeMender scan` check.
+- Optional: enable **Require code scanning results** for `CodeMender` in your `main` branch ruleset and pass `fail-check: false` to the reusable workflow. GitHub code scanning enforces the severity gate on pull requests, maintainers can dismiss false positives in the Security tab to unblock merges, and `CodeMender scan` catches setup or scan execution errors while exporting findings to autofix.
 
 ### 3. The workflow
 
@@ -78,6 +79,7 @@ Fork and Dependabot pull requests skip the scan: their workflows can't read secr
 | Input | Default | Meaning |
 |---|---|---|
 | `fail-on` | `CRITICAL,HIGH` | Severities that fail the check. `""` reports only and disables autofix. |
+| `fail-check` | `true` | Fail the `CodeMender scan` check when findings match `fail-on`. Set to `false` when a GitHub code scanning ruleset enforces merge protection. |
 | `cm-version` | `0.21.0` | CLI version. Must have a file in `checksums/`. |
 | `upload-sarif` | `true` | Upload to code scanning. |
 | `autofix` | `true` | Open a fix pull request when the scan fails. |

@@ -24,6 +24,10 @@ on:
         description: Severities that fail the scan (comma-separated, no spaces). Empty string reports only.
         type: string
         default: CRITICAL,HIGH
+      fail-check:
+        description: Fail the CodeMender scan check when findings match fail-on. Set to false when a GitHub code scanning ruleset enforces merge protection.
+        type: boolean
+        default: true
       cm-version:
         description: CodeMender CLI version to install. Empty uses the pinned version in CM_VERSION.
         type: string
@@ -123,6 +127,7 @@ jobs:
           version: ${{ inputs.cm-version }}
           fail-on: ${{ inputs.fail-on }}
           findings-file: ${{ runner.temp }}/codemender-findings.json
+          fail: ${{ inputs.fail-check && 'true' || 'false' }}
 
       - name: Upload results to code scanning
         if: ${{ !cancelled() && inputs.upload-sarif && hashFiles('codemender.sarif') != '' }}

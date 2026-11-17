@@ -13,7 +13,7 @@
 #   FINDINGS_FILE  optional  JSON output path for blocking findings
 #   GITHUB_OUTPUT  optional  receives status=, findings=, sarif-file=
 #
-# Exits 0 even when findings exist; the caller decides whether to fail. Exits 2 on setup errors.
+# Exits 0 when clean or when findings exist (status 0 or 1); exits 2 on setup or scan execution errors.
 set -uo pipefail
 
 : "${BASE_REF:?BASE_REF is required}"
@@ -68,6 +68,8 @@ if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then
     echo "no CodeMender log directory at ${logdir}"
   fi
   echo "::endgroup::"
+  echo "::error::cm find failed with exit status ${status}."
+  exit 2
 fi
 
 echo '[]' > "$FINDINGS_FILE"
