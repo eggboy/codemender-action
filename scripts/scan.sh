@@ -55,14 +55,14 @@ cm find . \
   --yes \
   --bypass-warning || status=$?
 
-# Exit 1 means findings. Anything else is an error; surface the details the CLI logged
-# (permission names, HTTP bodies) so the failure can be diagnosed from the job log alone.
+# Exit 1 is reserved for CI gate findings; exit 2 covers general failures and sessions
+# stopped by the prompt-injection filter, and 10/20/30/40/50 cover health and API errors.
 if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then
   logdir="${CM_HOME:-$HOME/.codemender}/logs"
   echo "::group::CodeMender error details (cm find exit ${status})"
   if [ -d "$logdir" ]; then
     find "$logdir" -type f -mmin -30 \( -name '*.log' -o -name '*.jsonl' \) -print0 2>/dev/null \
-      | xargs -0 grep -h -i -E 'permission|denied|forbidden|unauthori|403|401|quota|not found|reason' 2>/dev/null \
+      | xargs -0 grep -h -i -E 'permission|denied|forbidden|unauthori|403|401|quota|not found|reason|inject|prompt|filter|blocked' 2>/dev/null \
       | cut -c1-600 | sort -u | head -20
   else
     echo "no CodeMender log directory at ${logdir}"
