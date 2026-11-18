@@ -124,6 +124,7 @@ The scan step prints a `CodeMender error details` group whenever `cm find` exits
 | Log says | Meaning | Fix |
 |---|---|---|
 | `Unsupported agent interaction: codemender-preview` / "Access to the CodeMender preview release must be coordinated" | The project is not onboarded to the CodeMender preview. IAM is fine; `cm health` still passes | Ask your Google account team to onboard the project, then run the Preflight workflow |
+| `cm find failed with exit status 2` | General scan failure, or the prompt-injection filter stopped the session | Read the `CodeMender error details` log group and inspect changed files for prompt-injection text |
 | `cm health` exit 10 | No usable Google Cloud credential | Check the three secrets and that the job has `id-token: write` |
 | `cm health` exit 40 | Service account lacks `roles/aiplatform.user`, or the API is disabled | Re-run `scripts/setup-gcp.sh` |
 | `origin/<branch> is not in the checkout` | Shallow checkout | `actions/checkout` with `fetch-depth: 0` (the reusable workflow does this) |
