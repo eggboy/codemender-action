@@ -80,7 +80,7 @@ Fork and Dependabot pull requests skip the scan: their workflows can't read secr
 |---|---|---|
 | `fail-on` | `CRITICAL,HIGH` | Severities that fail the check. `""` reports only and disables autofix. |
 | `fail-check` | `true` | Fail the `CodeMender scan` check when findings match `fail-on`. Set to `false` when a GitHub code scanning ruleset enforces merge protection. |
-| `cm-version` | `0.22.0` | CLI version. Must have a file in `checksums/`. |
+| `cm-version` | `0.23.0` | CLI version. Must have a file in `checksums/`. |
 | `upload-sarif` | `true` | Upload to code scanning. |
 | `autofix` | `true` | Open a fix pull request when the scan fails. |
 | `runs-on` | `ubuntu-24.04` | Runner label. Use GitHub-hosted runners: each job gets a fresh VM and the agent runs without its sandbox. |
@@ -98,7 +98,7 @@ For use inside your own job, after `actions/checkout` (`fetch-depth: 0`) and `go
 
 | Input | Default | Meaning |
 |---|---|---|
-| `version` / `sha256` | `0.22.0` / from `checksums/` | CLI version and expected checksum. |
+| `version` / `sha256` | `0.23.0` / from `checksums/` | CLI version and expected checksum. |
 | `base-ref` | `origin/${{ github.base_ref }}` | Ref to diff against. |
 | `fail-on` | `CRITICAL,HIGH` | Severities that fail the step. |
 | `diff-workers` | `16` | Files scanned concurrently. |
